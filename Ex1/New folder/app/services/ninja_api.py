@@ -2,13 +2,13 @@ from dotenv import load_dotenv
 from typing import Optional
 import os
 import requests
+import re
 
 """
 Service for interacting with the API Ninjas Animals API.
 Handles API key loading, request logic, and response parsing.
 """
 
-# Load environment variables from .env
 load_dotenv()
 
 NINJA_API_KEY = os.getenv("NINJA_API_KEY")
@@ -25,7 +25,7 @@ class NinjaAPI:
         if not api_key:
             raise ValueError("Ninja API key not found. Please set NINJA_API_KEY in your .env file.")
         self.api_key = api_key
-    # TODO: review the code below
+
     def fetch_animal(self, animal_type: str):
         """
         Fetch animal data from Ninja API by type.
@@ -38,18 +38,17 @@ class NinjaAPI:
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 404:
-                raise NinjaAPIError("Animal type not found in Ninja API.")
+                raise NinjaAPIError("Animal type not found in Ninja API.") #400
             else:
-                raise NinjaAPIError(f"API error: {response.status_code}")
+                raise NinjaAPIError(f"API error: {response.status_code}") #500
         except requests.RequestException as e:
-            raise NinjaAPIError(f"Request failed: {str(e)}")
+            raise NinjaAPIError(f"Request failed: {str(e)}") #???
 
     def _parse_attributes(self, entry: dict) -> list:
         """Extract attributes array from 'temperament' or 'group_behavior'.
-
         Rules:
         - Prefer 'temperament' over 'group_behavior' when both exist.
-        - Split the selected string into words and strip punctuation.
+        - Split the selected string into words.
         - Return empty list when neither field exists or value is empty.
         """
         text = None
@@ -61,37 +60,28 @@ class NinjaAPI:
         if not text:
             return []
 
-        # Remove punctuation and split on whitespace
-        import re
-        cleaned = re.sub(r"[\.,;:!()\[\]{}\"]", '', text)
+        cleaned = re.sub(r"[\.,;:!()\[\]{}\"]", ' ', text) # Remove punctuation
+        cleaned = " ".join(cleaned.split()) # Normalize spaces
         parts = [p for p in cleaned.split() if p]
         return parts
-
+    
     def _parse_lifespan(self, entry: dict) -> 'Optional[int]':
         """Parse lifespan string into an integer as per spec.
-
         Examples:
         - "up to 41 years" -> 41
         - "from 2 to 5 years" -> 2 (lowest number)
         - "12" -> 12
         - missing/empty -> None
         """
-        lifespan_text = entry.get('lifespan')
-        if not lifespan_text:
+        text = entry.get('lifespan')
+        if not text:
             return None
+        
+        # Find all integers in the string
+        nums = [int(n) for n in re.findall(r"(\d+)", str(text))]
+        return min(nums) if nums else None
 
-        import re
-        # Find all integer numbers in the lifespan text
-        nums = re.findall(r"(\d+)", str(lifespan_text))
-        if not nums:
-            return None
-        # Return the smallest integer found
-        try:
-            nums_int = [int(n) for n in nums]
-            return min(nums_int)
-        except ValueError:
-            return None
-
+    # TODO: review the code below
     def get_pet_type_info(self, animal_type: str) -> dict:
         """High-level method to fetch and normalize a pet-type from the Ninja API.
 
