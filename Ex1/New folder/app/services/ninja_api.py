@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 from typing import Optional
 import os
 import requests
+from app.schemas.pet_type_schema import PetTypeInfo
 import re
 
 """
@@ -12,7 +13,7 @@ Handles API key loading, request logic, and response parsing.
 load_dotenv()
 
 NINJA_API_KEY = os.getenv("NINJA_API_KEY")
-API_URL = "https://api-ninjas.com/api/animals"
+API_URL = "https://api.api-ninjas.com/v1/animals"
 
 class NinjaAPIError(Exception):
     """Custom exception for Ninja API errors."""
@@ -51,20 +52,13 @@ class NinjaAPI:
         - Split the selected string into words.
         - Return empty list when neither field exists or value is empty.
         """
-        text = None
-        if 'temperament' in entry and entry.get('temperament'):
-            text = entry.get('temperament')
-        elif 'group_behavior' in entry and entry.get('group_behavior'):
-            text = entry.get('group_behavior')
-
+        text = entry.get('temperament') or entry.get('group_behavior')
         if not text:
             return []
 
-        cleaned = re.sub(r"[\.,;:!()\[\]{}\"]", ' ', text) # Remove punctuation
-        cleaned = " ".join(cleaned.split()) # Normalize spaces
-        parts = [p for p in cleaned.split() if p]
-        return parts
-    
+        text = re.sub(r"[^\w\s]", " ", text)
+        return text.split()
+
     def _parse_lifespan(self, entry: dict) -> 'Optional[int]':
         """Parse lifespan string into an integer as per spec.
         Examples:
@@ -82,10 +76,9 @@ class NinjaAPI:
         return min(nums) if nums else None
 
     # TODO: review the code below
-    def get_pet_type_info(self, animal_type: str) -> dict:
-        """High-level method to fetch and normalize a pet-type from the Ninja API.
-
-        Returns a dict with keys: type, family, genus, attributes (list), lifespan (int|null)
+    def get_pet_type_info(self, animal_type: str) -> PetTypeInfo:
+        """Fetch and normalize a pet-type from the Ninja API.
+        Returns a dict with the following keys: type, family, genus, attributes (list), lifespan (int|null)
         Raises NinjaAPIError if not found or on API errors.
         """
         raw = self.fetch_animal(animal_type)
@@ -95,33 +88,24 @@ class NinjaAPI:
 
         # Find exact name match (case-insensitive)
         target = None
-        for entry in raw:
-            name = entry.get('name')
-            if name and name.strip().lower() == animal_type.strip().lower():
-                target = entry
-                break
-
+        target = next(
+            (entry for entry in raw if entry.get('name','').strip().lower() == animal_type.strip().lower()), None
+            )
+        
         if target is None:
-            # If no exact match, consider API didn't find the specific animal
-            raise NinjaAPIError("Animal type not found in Ninja API.")
+            raise NinjaAPIError("Animal type not found in Ninja API.") #400
 
         # Extract fields
         pet_type = target.get('name')
-        # Permissive handling: if the Ninja API doesn't provide family/genus
-        # we'll keep them as empty strings so the application can still
-        # create a PetType. This is intentionally permissive; consider
-        # switching to a strict behavior (raising an error) if you want
-        # to enforce taxonomy completeness later.
-        # TODO: revisit this decision before submission/grading.
         family = target.get('family') or ''
         genus = target.get('genus') or ''
         attributes = self._parse_attributes(target)
         lifespan = self._parse_lifespan(target)
 
-        return {
-            'type': pet_type,
-            'family': family,
-            'genus': genus,
-            'attributes': attributes,
-            'lifespan': lifespan,
-        }
+        return PetTypeInfo(
+            type=pet_type,
+            family=family,
+            genus=genus,
+            attributes=attributes,
+            lifespan=lifespan,
+        )
